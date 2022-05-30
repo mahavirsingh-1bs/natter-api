@@ -39,11 +39,12 @@ CREATE TABLE audit_log(
 CREATE SEQUENCE audit_id_seq;
 
 CREATE TABLE tokens(
-    token_id VARCHAR(100) PRIMARY KEY,
+    token_id VARCHAR(255) PRIMARY KEY,
     user_id VARCHAR(30) NOT NULL REFERENCES users(user_id),
     expiry TIMESTAMP NOT NULL,
     attributes VARCHAR(4096) NOT NULL
 );
+CREATE INDEX expired_token_idx ON tokens(expiry);
 
 CREATE USER natter_api_user PASSWORD 'password';
 GRANT SELECT, INSERT ON spaces, messages TO natter_api_user;

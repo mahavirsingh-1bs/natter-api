@@ -4,23 +4,33 @@ import java.security.SecureRandom;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Optional;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import org.dalesbred.Database;
 import org.json.JSONObject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import spark.Request;
 
 public class DatabaseTokenStore implements TokenStore {
+	private static final Logger logger =
+            LoggerFactory.getLogger(DatabaseTokenStore.class);
+	
 	private final Database database;
     private final SecureRandom secureRandom;
 
     public DatabaseTokenStore(Database database) {
         this.database = database;
         this.secureRandom = new SecureRandom();
+        Executors.newSingleThreadScheduledExecutor()
+        	.scheduleAtFixedRate(this::deleteExpiredTokens, 
+        			10, 10, TimeUnit.MINUTES);
     }
 
     private String randomId() {
-        var bytes = new byte[20];
+        var bytes = new byte[160];
         secureRandom.nextBytes(bytes);
         return Base64Url.encode(bytes);
     }
@@ -32,7 +42,7 @@ public class DatabaseTokenStore implements TokenStore {
 
         database.updateUnique("INSERT INTO " +
             "tokens(token_id, user_id, expiry, attributes) " +
-            "VALUES(?, ?, ?, ?)", tokenId, token.username,
+            "VALUES(?, ?, ?, ?)", hash(tokenId), token.username,
                 token.expiry, attrs);
 
         return tokenId;
@@ -42,13 +52,13 @@ public class DatabaseTokenStore implements TokenStore {
     public Optional<Token> read(Request request, String tokenId) {
         return database.findOptional(this::readToken,
                 "SELECT user_id, expiry, attributes " +
-                "FROM tokens WHERE token_id = ?", tokenId);
+                "FROM tokens WHERE token_id = ?", hash(tokenId));
     }
     
     @Override
     public void revoke(Request request, String tokenId) {
         database.update("DELETE FROM tokens WHERE token_id = ?",
-                tokenId);
+        		hash(tokenId));
     }
     
     private Token readToken(ResultSet resultSet)
@@ -63,4 +73,15 @@ public class DatabaseTokenStore implements TokenStore {
         }
         return token;
     }
+    
+    public void deleteExpiredTokens() {
+        var deleted = database.update(
+            "DELETE FROM tokens WHERE expiry < current_timestamp");
+        logger.info("Deleted {} expired tokens", deleted);
+    }
+    
+    private String hash(String tokenId) {
+		var hash = CookieTokenStore.sha256(tokenId);
+		return Base64Url.encode(hash);
+	}
 }

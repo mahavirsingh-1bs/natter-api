@@ -13,8 +13,10 @@ import static spark.Spark.port;
 import static spark.Spark.post;
 import static spark.Spark.secure;
 
+import java.io.FileInputStream;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.security.KeyStore;
 import java.util.Set;
 
 import org.dalesbred.Database;
@@ -29,9 +31,8 @@ import com.manning.apisecurityinaction.controller.ModeratorController;
 import com.manning.apisecurityinaction.controller.SpaceController;
 import com.manning.apisecurityinaction.controller.TokenController;
 import com.manning.apisecurityinaction.controller.UserController;
-import com.manning.apisecurityinaction.token.CookieTokenStore;
 import com.manning.apisecurityinaction.token.DatabaseTokenStore;
-import com.manning.apisecurityinaction.token.TokenStore;
+import com.manning.apisecurityinaction.token.HmacTokenStore;
 
 import spark.Request;
 import spark.Response;
@@ -73,7 +74,14 @@ public class Main {
 		var spaceController = new SpaceController(database);
 		var userController = new UserController(database);
 		
-		TokenStore tokenStore = new DatabaseTokenStore(database);
+		var keyPassword = System.getProperty("keystore.password", "changeit").toCharArray();
+        var keyStore = KeyStore.getInstance("PKCS12");
+        keyStore.load(new FileInputStream("keystore.p12"), keyPassword);
+        var macKey = keyStore.getKey("hmac-key", keyPassword);
+
+        var databaseTokenStore = new DatabaseTokenStore(database);
+        var tokenStore = new HmacTokenStore(databaseTokenStore, macKey);
+        
 		var tokenController = new TokenController(tokenStore);
 		
 		before(userController::authenticate);
@@ -90,6 +98,12 @@ public class Main {
 		
 		before("/spaces", userController::requireAuthentication); 
 		post("/spaces", spaceController::createSpace);
+		
+		before("/expired_tokens", userController::requireAuthentication);
+		delete("/expired_tokens", (request, response) -> {
+		    databaseTokenStore.deleteExpiredTokens();
+		    return new JSONObject();
+		});
 		
 		before("/spaces/:spaceId/messages", userController.requirePermission("POST", "w"));
 		post("/spaces/:spaceId/messages", spaceController::postMessage);

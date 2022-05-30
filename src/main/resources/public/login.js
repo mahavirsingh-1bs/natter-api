@@ -5,7 +5,6 @@ function login(username, password) {
 
     fetch(apiUrl + '/sessions', {
         method: 'POST',
-        credentials: 'include',
         headers: {
             'Content-Type': 'application/json',
             'Authorization': credentials
@@ -14,8 +13,7 @@ function login(username, password) {
     .then(res => {
        if (res.ok) {
          res.json().then(json => {
-            document.cookie = 'csrfToken=' + json.token +
-                ';Secure;SameSite=strict';
+            localStorage.setItem('token', json.token);
             window.location.replace('/natter.html');
          });
        }
