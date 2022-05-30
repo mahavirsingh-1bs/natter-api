@@ -1,0 +1,6 @@
+.DS_Store
+.classpath
+.project
+.settings/
+localhost.p12
+target/
