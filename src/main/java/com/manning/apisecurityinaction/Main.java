@@ -19,6 +19,8 @@ import java.nio.file.Paths;
 import java.security.KeyStore;
 import java.util.Set;
 
+import javax.crypto.SecretKey;
+
 import org.dalesbred.Database;
 import org.dalesbred.result.EmptyResultException;
 import org.h2.jdbcx.JdbcConnectionPool;
@@ -32,7 +34,8 @@ import com.manning.apisecurityinaction.controller.SpaceController;
 import com.manning.apisecurityinaction.controller.TokenController;
 import com.manning.apisecurityinaction.controller.UserController;
 import com.manning.apisecurityinaction.token.DatabaseTokenStore;
-import com.manning.apisecurityinaction.token.HmacTokenStore;
+import com.manning.apisecurityinaction.token.EncryptedJwtTokenStore;
+import com.manning.apisecurityinaction.token.SecureTokenStore;
 
 import spark.Request;
 import spark.Response;
@@ -77,12 +80,12 @@ public class Main {
 		var keyPassword = System.getProperty("keystore.password", "changeit").toCharArray();
         var keyStore = KeyStore.getInstance("PKCS12");
         keyStore.load(new FileInputStream("keystore.p12"), keyPassword);
-        var macKey = keyStore.getKey("hmac-key", keyPassword);
-
-        var databaseTokenStore = new DatabaseTokenStore(database);
-        var tokenStore = new HmacTokenStore(databaseTokenStore, macKey);
+        var encKey = keyStore.getKey("aes-key", keyPassword);
         
-		var tokenController = new TokenController(tokenStore);
+        var tokenWhitelist = new DatabaseTokenStore(database);
+        SecureTokenStore tokenStore = new EncryptedJwtTokenStore(
+        		(SecretKey) encKey, tokenWhitelist);
+        var tokenController = new TokenController(tokenStore);
 		
 		before(userController::authenticate);
 		before(tokenController::validateToken);
@@ -99,11 +102,13 @@ public class Main {
 		before("/spaces", userController::requireAuthentication); 
 		post("/spaces", spaceController::createSpace);
 		
+		/**
 		before("/expired_tokens", userController::requireAuthentication);
 		delete("/expired_tokens", (request, response) -> {
 		    databaseTokenStore.deleteExpiredTokens();
 		    return new JSONObject();
 		});
+		*/
 		
 		before("/spaces/:spaceId/messages", userController.requirePermission("POST", "w"));
 		post("/spaces/:spaceId/messages", spaceController::postMessage);

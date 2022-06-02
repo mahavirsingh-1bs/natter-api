@@ -14,7 +14,7 @@ import org.slf4j.LoggerFactory;
 
 import spark.Request;
 
-public class DatabaseTokenStore implements TokenStore {
+public class DatabaseTokenStore implements ConfidentialTokenStore {
 	private static final Logger logger =
             LoggerFactory.getLogger(DatabaseTokenStore.class);
 	
