@@ -4,8 +4,10 @@ import static spark.Spark.halt;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.List;
 
 import org.dalesbred.Database;
+import org.dalesbred.query.QueryBuilder;
 import org.json.JSONObject;
 
 import com.lambdaworks.crypto.SCryptUtil;
@@ -46,9 +48,29 @@ public class UserController {
     }
 	
     public void authenticate(Request request, Response response) {
-    	var authHeader = request.headers("Authorization");
+    	var credentials = getCredentials(request);
+        if (credentials == null) return;
+
+        var username = credentials[0];
+        var password = credentials[1];
+
+        var hash = database.findOptional(String.class, 
+        		"SELECT pw_hash FROM users WHERE user_id = ?", username);
+
+        if (hash.isPresent() && SCryptUtil.check(password, hash.get())) {
+            request.attribute("subject", username);
+            
+            var groups = database.findAll(String.class,
+                    "SELECT DISTINCT group_id FROM group_members " +
+                            "WHERE user_id = ?", username);
+                request.attribute("groups", groups);
+        }
+    }
+    
+    String[] getCredentials(Request request) {
+        var authHeader = request.headers("Authorization");
         if (authHeader == null || !authHeader.startsWith("Basic ")) {
-            return;
+            return null;
         }
 
         var offset = "Basic ".length();
@@ -61,17 +83,11 @@ public class UserController {
         }
 
         var username = components[0];
-        var password = components[1];
-
         if (!username.matches(USERNAME_PATTERN)) {
             throw new IllegalArgumentException("invalid username");
         }
 
-        var hash = database.findOptional(String.class, "SELECT pw_hash FROM users WHERE user_id = ?", username);
-
-        if (hash.isPresent() && SCryptUtil.check(password, hash.get())) {
-            request.attribute("subject", username);
-        }
+        return components;
     }
     
 	public void requireAuthentication(Request request, Response response) {
@@ -91,13 +107,18 @@ public class UserController {
 
             var spaceId = Long.parseLong(request.params(":spaceId"));
             var username = (String) request.attribute("subject");
+            List<String> groups = request.attribute("groups");
 
-            var perms = database.findOptional(String.class,
+            var queryBuilder = new QueryBuilder(
                     "SELECT perms FROM permissions " +
-                            "WHERE space_id = ? AND user_id = ?",
-                    spaceId, username).orElse("");
+                            "WHERE space_id = ? " + 
+                    		"AND (user_or_group_id = ?", spaceId, username);
+            for (var group : groups) {
+                queryBuilder.append(" OR user_or_group_id = ?", group);
+            } 
 
-            if (!perms.contains(permission)) {
+            var perms = database.findAll(String.class, queryBuilder.build());
+            if (!perms.stream().noneMatch(p -> p.contains(permission))) {
                 halt(403);
             }
         };
